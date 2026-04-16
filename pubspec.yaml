@@ -1,0 +1,67 @@
+name: droid_whisper
+description: >-
+  DroidWhisper — Android speech-to-text app supporting on-device Whisper,
+  OpenAI Whisper API, and Gemini 3 Flash cloud transcription.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ---------- State Management ----------
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # ---------- Code Generation / Serialisation ----------
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.9.0
+
+  # ---------- Networking ----------
+  dio: ^5.7.0
+
+  # ---------- Audio Recording ----------
+  record: ^6.1.2
+
+  # ---------- On-device Whisper ----------
+  whisper_flutter_new: ^1.0.1
+
+  # ---------- File / Path ----------
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # ---------- Permissions ----------
+  permission_handler: ^11.3.1
+
+  # ---------- Environment ----------
+  flutter_dotenv: ^5.2.1
+
+  # ---------- Utilities ----------
+  uuid: ^4.5.1
+  intl: ^0.19.0
+  logger: ^2.4.0
+
+  # ---------- Preferences ----------
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # ---------- Code Generators ----------
+  build_runner: ^2.4.13
+  freezed: ^2.5.8
+  json_serializable: ^6.8.0
+
+  # ---------- Testing ----------
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - .env
