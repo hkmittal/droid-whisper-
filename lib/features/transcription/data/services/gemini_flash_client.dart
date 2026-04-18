@@ -57,7 +57,11 @@ class GeminiFlashClient {
     final mimeType = AudioUtils.mimeTypeForPath(audioFile.path) ?? 'audio/wav';
     final audioBytes = await audioFile.readAsBytes();
     final audioBase64 = base64Encode(audioBytes);
-    final model = config.modelName ?? GeminiConstants.defaultModel;
+    // Ignore config.modelName if it's a local whisper model ID
+    final isLocalModel = ['tiny', 'base', 'small', 'medium', 'large-v1'].contains(config.modelName);
+    final model = (config.modelName != null && !isLocalModel)
+        ? config.modelName!
+        : GeminiConstants.defaultModel;
     final url = GeminiConstants.generateContentUrl(
       model: model,
       apiKey: apiKey,

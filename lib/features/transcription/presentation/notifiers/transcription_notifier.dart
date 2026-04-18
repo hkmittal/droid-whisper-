@@ -10,6 +10,7 @@ import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
+import 'package:record_platform_interface/record_platform_interface.dart';
 
 import '../../../../core/exceptions/transcription_exception.dart';
 import '../../data/repositories/transcription_repository.dart';
@@ -24,14 +25,17 @@ class TranscriptionNotifier extends StateNotifier<TranscriptionState> {
     required TranscriptionRepository repository,
     required AudioRecorder recorder,
     required TranscriptionConfig config,
+    required bool preferBluetoothMic,
   })  : _repository = repository,
         _recorder = recorder,
         _config = config,
+        _preferBluetoothMic = preferBluetoothMic,
         super(const TranscriptionState.idle());
 
   final TranscriptionRepository _repository;
   final AudioRecorder _recorder;
   TranscriptionConfig _config;
+  bool _preferBluetoothMic;
   final Logger _log = Logger(printer: PrettyPrinter(methodCount: 0));
 
   Timer? _elapsedTimer;
@@ -60,13 +64,16 @@ class TranscriptionNotifier extends StateNotifier<TranscriptionState> {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       _currentRecordingPath = '${dir.path}/dw_recording_$timestamp.wav';
 
-      _log.i('Starting recording → $_currentRecordingPath');
+      _log.i('Starting recording → $_currentRecordingPath (Prefer Bluetooth: $_preferBluetoothMic)');
 
       await _recorder.start(
-        const RecordConfig(
+        RecordConfig(
           encoder: AudioEncoder.wav,
           sampleRate: 16000,
           numChannels: 1,
+          androidConfig: _preferBluetoothMic 
+              ? AndroidRecordConfig(audioSource: AndroidAudioSource.voiceCommunication)
+              : AndroidRecordConfig(),
         ),
         path: _currentRecordingPath!,
       );

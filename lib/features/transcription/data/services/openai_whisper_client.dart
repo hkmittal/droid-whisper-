@@ -50,7 +50,11 @@ class OpenAIWhisperClient {
 
     final mimeType = AudioUtils.mimeTypeForPath(audioFile.path) ?? 'audio/wav';
     final fileName = p.basename(audioFile.path);
-    final model = config.modelName ?? OpenAIConstants.defaultModel;
+    // Ignore config.modelName if it's a local model ID (base, tiny, etc.)
+    final isLocalModel = ['tiny', 'base', 'small', 'medium', 'large-v1'].contains(config.modelName);
+    final model = (config.modelName != null && !isLocalModel) 
+        ? config.modelName! 
+        : OpenAIConstants.defaultModel;
 
     _log.i('OpenAI Whisper → uploading "$fileName" ($mimeType) to model=$model');
 

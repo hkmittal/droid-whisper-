@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,7 +90,7 @@ final configProvider =
   (ref) => ConfigNotifier(),
 );
 
-/// Manages the user’s transcription preferences.
+/// Manages the user’s transcription preferences and persists them securely.
 class ConfigNotifier extends StateNotifier<TranscriptionConfig> {
   ConfigNotifier()
       : super(
@@ -99,10 +100,45 @@ class ConfigNotifier extends StateNotifier<TranscriptionConfig> {
             openAIApiKey: dotenv.env['OPENAI_API_KEY'],
             geminiApiKey: dotenv.env['GEMINI_API_KEY'],
           ),
-        );
+        ) {
+    _loadFromDisk();
+  }
+
+  static const _kProviderKey = 'default_provider';
+  static const _kLanguageKey = 'language';
+  static const _kModelNameKey = 'model_name';
+  static const _kOpenAIApiKey = 'openai_api_key';
+  static const _kGeminiApiKey = 'gemini_api_key';
+
+  final _secureStorage = const FlutterSecureStorage();
+
+  Future<void> _loadFromDisk() async {
+    final prefs = await SharedPreferences.getInstance();
+    final openaiKey = await _secureStorage.read(key: _kOpenAIApiKey);
+    final geminiKey = await _secureStorage.read(key: _kGeminiApiKey);
+    
+    final rawProv = prefs.getString(_kProviderKey) ?? '';
+    final prov = _isValidProvider(rawProv) ? _fromRaw(rawProv) : _defaultProvider();
+    
+    state = state.copyWith(
+      provider: prov,
+      language: prefs.getString(_kLanguageKey) ?? state.language,
+      modelName: prefs.getString(_kModelNameKey) ?? state.modelName,
+      openAIApiKey: (openaiKey?.isNotEmpty == true) ? openaiKey : state.openAIApiKey,
+      geminiApiKey: (geminiKey?.isNotEmpty == true) ? geminiKey : state.geminiApiKey,
+    );
+  }
 
   static TranscriptionProvider _defaultProvider() {
     final raw = dotenv.env['DEFAULT_PROVIDER'] ?? 'local';
+    return _isValidProvider(raw) ? _fromRaw(raw) : TranscriptionProvider.local;
+  }
+
+  static bool _isValidProvider(String raw) {
+    return raw == 'openai_whisper' || raw == 'gemini_flash' || raw == 'local';
+  }
+
+  static TranscriptionProvider _fromRaw(String raw) {
     switch (raw) {
       case 'openai_whisper':
         return TranscriptionProvider.openAIWhisper;
@@ -113,17 +149,60 @@ class ConfigNotifier extends StateNotifier<TranscriptionConfig> {
     }
   }
 
-  void setProvider(TranscriptionProvider provider) =>
-      state = state.copyWith(provider: provider);
+  static String _toRaw(TranscriptionProvider p) {
+    switch (p) {
+      case TranscriptionProvider.openAIWhisper:
+        return 'openai_whisper';
+      case TranscriptionProvider.geminiFlash:
+        return 'gemini_flash';
+      case TranscriptionProvider.local:
+        return 'local';
+    }
+  }
 
-  void setLanguage(String? language) =>
-      state = state.copyWith(language: language);
+  Future<void> setProvider(TranscriptionProvider provider) async {
+    state = state.copyWith(provider: provider);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kProviderKey, _toRaw(provider));
+  }
 
-  void setOpenAIApiKey(String? key) => state = state.copyWith(openAIApiKey: key);
+  Future<void> setLanguage(String? language) async {
+    state = state.copyWith(language: language);
+    final prefs = await SharedPreferences.getInstance();
+    if (language == null) {
+      await prefs.remove(_kLanguageKey);
+    } else {
+      await prefs.setString(_kLanguageKey, language);
+    }
+  }
 
-  void setGeminiApiKey(String? key) => state = state.copyWith(geminiApiKey: key);
+  Future<void> setOpenAIApiKey(String? key) async {
+    state = state.copyWith(openAIApiKey: key);
+    if (key == null || key.isEmpty) {
+      await _secureStorage.delete(key: _kOpenAIApiKey);
+    } else {
+      await _secureStorage.write(key: _kOpenAIApiKey, value: key);
+    }
+  }
 
-  void setModelName(String? name) => state = state.copyWith(modelName: name);
+  Future<void> setGeminiApiKey(String? key) async {
+    state = state.copyWith(geminiApiKey: key);
+    if (key == null || key.isEmpty) {
+      await _secureStorage.delete(key: _kGeminiApiKey);
+    } else {
+      await _secureStorage.write(key: _kGeminiApiKey, value: key);
+    }
+  }
+
+  Future<void> setModelName(String? name) async {
+    state = state.copyWith(modelName: name);
+    final prefs = await SharedPreferences.getInstance();
+    if (name == null) {
+      await prefs.remove(_kModelNameKey);
+    } else {
+      await prefs.setString(_kModelNameKey, name);
+    }
+  }
 
   void setTemperature(double temp) =>
       state = state.copyWith(temperature: temp);
@@ -145,6 +224,7 @@ final transcriptionStateProvider =
     repository: ref.watch(transcriptionRepositoryProvider),
     recorder: ref.watch(audioRecorderProvider),
     config: ref.watch(configProvider),
+    preferBluetoothMic: ref.watch(preferBluetoothMicProvider),
   ),
 );
 // ────────────────────────────────────────────────────────────────
@@ -162,51 +242,30 @@ final floatingWidgetChannelProvider = Provider<FloatingWidgetChannel>((ref) {
 final floatingWidgetActiveProvider = StateProvider<bool>((ref) => false);
 
 // ────────────────────────────────────────────────────────────────
-// Widget default provider (persisted)
+// Bluetooth / Audio Source Config
 // ────────────────────────────────────────────────────────────────
 
-const _kWidgetProviderKey = 'widget_default_provider';
+/// Provides the user's preference for using the Bluetooth microphone (AudioSource.voiceCommunication).
+final preferBluetoothMicProvider =
+    StateNotifierProvider<PreferBluetoothMicNotifier, bool>((ref) {
+  return PreferBluetoothMicNotifier();
+});
 
-/// Persists the user’s chosen transcription provider for the floating widget.
-final widgetProviderNotifierProvider = StateNotifierProvider<
-    WidgetProviderNotifier, TranscriptionProvider>(
-  (ref) => WidgetProviderNotifier(),
-);
-
-/// Manages and persists the floating-widget’s default [TranscriptionProvider].
-class WidgetProviderNotifier
-    extends StateNotifier<TranscriptionProvider> {
-  WidgetProviderNotifier() : super(TranscriptionProvider.local) {
+class PreferBluetoothMicNotifier extends StateNotifier<bool> {
+  PreferBluetoothMicNotifier() : super(false) {
     _load();
   }
 
+  static const _kKey = 'prefer_bluetooth_mic';
+
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw   = prefs.getString(_kWidgetProviderKey);
-    if (raw != null) {
-      state = _fromRaw(raw);
-    }
+    state = prefs.getBool(_kKey) ?? false;
   }
 
-  Future<void> setProvider(TranscriptionProvider provider) async {
-    state = provider;
+  Future<void> setPreferBluetooth(bool prefer) async {
+    state = prefer;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kWidgetProviderKey, _toRaw(provider));
-  }
-
-  static TranscriptionProvider _fromRaw(String raw) {
-    switch (raw) {
-      case 'openai_whisper': return TranscriptionProvider.openAIWhisper;
-      case 'gemini_flash':   return TranscriptionProvider.geminiFlash;
-      default:               return TranscriptionProvider.local;
-    }
-  }
-
-  static String _toRaw(TranscriptionProvider p) {
-    switch (p) {
-      case TranscriptionProvider.openAIWhisper: return 'openai_whisper';
-      case TranscriptionProvider.geminiFlash:   return 'gemini_flash';
-      case TranscriptionProvider.local:         return 'local';
-    }
+    await prefs.setBool(_kKey, prefer);
   }
 }

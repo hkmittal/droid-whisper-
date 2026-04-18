@@ -14,6 +14,7 @@ import '../state/transcription_state.dart';
 import '../widgets/audio_recorder_widget.dart';
 import '../widgets/provider_selector_widget.dart';
 import '../widgets/transcription_result_card.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'settings_screen.dart';
 
 /// The home screen of the DroidWhisper app.
@@ -38,10 +39,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     channel.onWidgetStartRecording.listen((_) async {
       print('Floating widget: onWidgetStartRecording received!');
       try {
-        // Apply the widget’s default provider before recording.
-        final widgetProvider = ref.read(widgetProviderNotifierProvider);
-        ref.read(configProvider.notifier).setProvider(widgetProvider);
-        
         final notifier = ref.read(transcriptionStateProvider.notifier);
         await notifier.startRecording();
         print('Floating widget: startRecording completed, notifying native...');
@@ -88,39 +85,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // ── Default Provider Title
+              Text(
+                'Default Transcription Provider',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              
               // ── Provider selector chip row
               const ProviderSelectorWidget(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
+
+              // ── Floating Widget Toggle
+              const _FloatingWidgetToggleTile(),
+              const SizedBox(height: 32),
 
               // ── Central content area (expands)
               Expanded(
                 child: Center(
                   child: switch (txState) {
-                    TranscriptionIdle() => _IdleView(theme: theme),
-                    TranscriptionRecording(:final elapsed) =>
-                      _RecordingView(elapsed: elapsed, theme: theme),
-                    TranscriptionTranscribing(:final progress) =>
-                      _TranscribingView(progress: progress, theme: theme),
                     TranscriptionCompleted(:final result) =>
                       TranscriptionResultCard(result: result),
                     TranscriptionError(:final message) =>
                       _ErrorView(message: message, theme: theme),
+                    _ => const SizedBox.shrink(),
                   },
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // ── Record / stop button
-              const AudioRecorderWidget(),
-              const SizedBox(height: 12),
-
-              // ── Provider info footer
-              Text(
-                'Provider: ${config.provider.displayName}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
                 ),
               ),
             ],
@@ -134,102 +126,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 // ────────────────────────────────────────────────────────────────
 // Private sub‑views
 // ────────────────────────────────────────────────────────────────
-
-class _IdleView extends StatelessWidget {
-  const _IdleView({required this.theme});
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.mic_none_rounded,
-          size: 96,
-          color: theme.colorScheme.primary.withOpacity(0.3),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Tap the mic to start recording',
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RecordingView extends StatelessWidget {
-  const _RecordingView({required this.elapsed, required this.theme});
-  final Duration elapsed;
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.fiber_manual_record_rounded,
-          size: 80,
-          color: theme.colorScheme.error,
-        ),
-        const SizedBox(height: 12),
-        Text(
-          AudioUtils.formatDuration(elapsed),
-          style: theme.textTheme.headlineLarge?.copyWith(
-            fontFeatures: [const FontFeature.tabularFigures()],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Recording…',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TranscribingView extends StatelessWidget {
-  const _TranscribingView({required this.progress, required this.theme});
-  final double? progress;
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 64,
-          height: 64,
-          child: CircularProgressIndicator(
-            value: progress,
-            strokeWidth: 6,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text(
-          'Transcribing…',
-          style: theme.textTheme.titleMedium,
-        ),
-        if (progress != null) ...
-          [
-            const SizedBox(height: 4),
-            Text(
-              '${(progress! * 100).toStringAsFixed(0)}%',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-      ],
-    );
-  }
-}
 
 class _ErrorView extends StatelessWidget {
   const _ErrorView({required this.message, required this.theme});
@@ -255,6 +151,78 @@ class _ErrorView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Tile that enables/disables the floating widget and automatically handles overlay permission.
+class _FloatingWidgetToggleTile extends ConsumerStatefulWidget {
+  const _FloatingWidgetToggleTile();
+
+  @override
+  ConsumerState<_FloatingWidgetToggleTile> createState() => _FloatingWidgetToggleTileState();
+}
+
+class _FloatingWidgetToggleTileState extends ConsumerState<_FloatingWidgetToggleTile> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = ref.watch(floatingWidgetActiveProvider);
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('Enable Floating Widget', style: TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: const Text('Show the circular mic bubble over other apps'),
+      trailing: _loading
+          ? const CircularProgressIndicator()
+          : Switch(
+              value: isActive,
+              onChanged: (val) async {
+                setState(() => _loading = true);
+                final channel = ref.read(floatingWidgetChannelProvider);
+                try {
+                  if (val) {
+                    // Start of necessary permissions check
+                    final micStatus = await Permission.microphone.request();
+                    if (!micStatus.isGranted) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Microphone permission required for floating widget.')),
+                        );
+                      }
+                      return;
+                    }
+                    if (Theme.of(context).platform == TargetPlatform.android) {
+                      await Permission.notification.request();
+                    }
+                    // End of necessary permissions check
+
+                    final hasPerm = await channel.hasOverlayPermission();
+                    if (!hasPerm) {
+                      await channel.requestOverlayPermission();
+                      final granted = await channel.onOverlayPermissionResult.first
+                          .timeout(const Duration(seconds: 30), onTimeout: () => false);
+                      if (!granted) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Overlay permission denied.')),
+                          );
+                        }
+                        return;
+                      }
+                    }
+                    await channel.startFloatingWidget();
+                    ref.read(floatingWidgetActiveProvider.notifier).state = true;
+                  } else {
+                    await channel.stopFloatingWidget();
+                    ref.read(floatingWidgetActiveProvider.notifier).state = false;
+                  }
+                } finally {
+                  if (mounted) setState(() => _loading = false);
+                }
+              },
+            ),
     );
   }
 }

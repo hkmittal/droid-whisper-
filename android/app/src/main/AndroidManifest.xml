@@ -3,6 +3,8 @@
     <!-- ── Permissions ── -->
     <!-- Microphone access for recording -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Required to download models from the internet -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Draw over other apps (floating widget) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <!-- Foreground service (keeps widget alive while recording) -->

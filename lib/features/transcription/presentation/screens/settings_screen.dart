@@ -80,28 +80,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         children: [
-          // ──────── Provider selection ────────
-          Text('Transcription Provider',
-              style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          SegmentedButton<TranscriptionProvider>(
-            segments: TranscriptionProvider.values
-                .map(
-                  (p) => ButtonSegment(
-                    value: p,
-                    label: Text(p.displayName,
-                        style: const TextStyle(fontSize: 11)),
-                    icon: Icon(_iconFor(p), size: 18),
-                  ),
-                )
-                .toList(),
-            selected: {config.provider},
-            onSelectionChanged: (s) => notifier.setProvider(s.first),
-          ),
-          const SizedBox(height: 16),
-          if (config.provider == TranscriptionProvider.local) ...[
-            const _LocalModelsMarketplaceTile(),
-          ],
+          const _LocalModelsMarketplaceTile(),
+          const SizedBox(height: 24),
           const SizedBox(height: 24),
 
           // ──────── Language ────────
@@ -182,25 +162,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ──────── Floating Widget ────────
-          const Divider(height: 32),
-          Text('Floating Widget', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(
-            'Configure the floating mic bubble that works across all apps.',
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.outline),
+
+          // ──────── Bluetooth Mic toggle ────────
+          SwitchListTile(
+            title: Text('Prefer Bluetooth Microphone', style: theme.textTheme.titleSmall),
+            subtitle: const Text('Attempts to route audio from connected Bluetooth earphones (like TWS).'),
+            value: ref.watch(preferBluetoothMicProvider),
+            onChanged: (val) {
+              ref.read(preferBluetoothMicProvider.notifier).setPreferBluetooth(val);
+            },
+            contentPadding: EdgeInsets.zero,
+            activeColor: theme.colorScheme.primary,
           ),
-          const SizedBox(height: 16),
-
-          // Floating Widget Enable Toggle
-          const _FloatingWidgetToggleTile(),
-          const SizedBox(height: 16),
-
-          // Default transcription mode for the widget
-          Text('Default Mode (Widget)', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          _WidgetProviderDropdown(),
           const SizedBox(height: 24),
 
           // ──────── Info card ────────
@@ -234,114 +207,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  IconData _iconFor(TranscriptionProvider p) => switch (p) {
-        TranscriptionProvider.local => Icons.phone_android_rounded,
-        TranscriptionProvider.openAIWhisper => Icons.cloud_outlined,
-        TranscriptionProvider.geminiFlash => Icons.auto_awesome_outlined,
-      };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Floating widget helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Dropdown that lets the user pick the provider used by the floating widget.
-class _WidgetProviderDropdown extends ConsumerWidget {
-  const _WidgetProviderDropdown();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current  = ref.watch(widgetProviderNotifierProvider);
-    final notifier = ref.read(widgetProviderNotifierProvider.notifier);
-
-    return DropdownButtonFormField<TranscriptionProvider>(
-      initialValue: current,
-      decoration: const InputDecoration(
-        border: OutlineInputBorder(),
-        isDense: true,
-        prefixIcon: Icon(Icons.bubble_chart_outlined),
-      ),
-      items: TranscriptionProvider.values
-          .map((p) => DropdownMenuItem(
-                value: p,
-                child: Row(
-                  children: [
-                    Icon(_iconFor(p), size: 18),
-                    const SizedBox(width: 8),
-                    Text(p.displayName),
-                  ],
-                ),
-              ))
-          .toList(),
-      onChanged: (p) {
-        if (p != null) notifier.setProvider(p);
-      },
-    );
-  }
-
-  IconData _iconFor(TranscriptionProvider p) => switch (p) {
-        TranscriptionProvider.local => Icons.phone_android_rounded,
-        TranscriptionProvider.openAIWhisper => Icons.cloud_outlined,
-        TranscriptionProvider.geminiFlash => Icons.auto_awesome_outlined,
-      };
-}
-
-/// Tile that enables/disables the floating widget and automatically handles overlay permission.
-class _FloatingWidgetToggleTile extends ConsumerStatefulWidget {
-  const _FloatingWidgetToggleTile();
-
-  @override
-  ConsumerState<_FloatingWidgetToggleTile> createState() => _FloatingWidgetToggleTileState();
-}
-
-class _FloatingWidgetToggleTileState extends ConsumerState<_FloatingWidgetToggleTile> {
-  bool _loading = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isActive = ref.watch(floatingWidgetActiveProvider);
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: const Text('Enable Floating Widget'),
-      subtitle: const Text('Show the circular mic bubble over other apps'),
-      trailing: _loading
-          ? const CircularProgressIndicator()
-          : Switch(
-              value: isActive,
-              onChanged: (val) async {
-                setState(() => _loading = true);
-                final channel = ref.read(floatingWidgetChannelProvider);
-                try {
-                  if (val) {
-                    final hasPerm = await channel.hasOverlayPermission();
-                    if (!hasPerm) {
-                      await channel.requestOverlayPermission();
-                      final granted = await channel.onOverlayPermissionResult.first
-                          .timeout(const Duration(seconds: 30), onTimeout: () => false);
-                      if (!granted) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Overlay permission denied.')),
-                          );
-                        }
-                        return;
-                      }
-                    }
-                    await channel.startFloatingWidget();
-                    ref.read(floatingWidgetActiveProvider.notifier).state = true;
-                  } else {
-                    await channel.stopFloatingWidget();
-                    ref.read(floatingWidgetActiveProvider.notifier).state = false;
-                  }
-                } finally {
-                  if (mounted) setState(() => _loading = false);
-                }
-              },
-            ),
     );
   }
 }

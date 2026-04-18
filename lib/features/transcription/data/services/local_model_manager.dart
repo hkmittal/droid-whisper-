@@ -55,7 +55,7 @@ class LocalModelManager {
     CancelToken? cancelToken,
   }) async {
     final path = await getModelPath(model);
-    final url = '$_baseUrl/ggml-${model.id}.bin';
+    final url = '${_baseUrl}ggml-${model.id}.bin';
 
     try {
       _log.i('Starting download for ${model.displayName} from $url');
